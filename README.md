@@ -75,9 +75,8 @@ Skipping [TICKER] - no actionable signal
 |---|---|---|---|
 | `TELEGRAM_BOT_TOKEN` | Yes | - | Telegram bot token |
 | `TELEGRAM_CHAT_ID` | Yes | - | Destination chat/channel ID |
-| `COPILOT_API_KEY` | Yes | - | Startup validation key in current code path |
 | `COPILOT_MODEL` | No | `claude-3.5-sonnet` | Preserved config model field |
-| `GITHUB_TOKEN` | Yes | - | Token used by model inference client |
+| `GITHUB_TOKEN` | Yes | - | Only required AI token; used by model inference client |
 | `MODEL_NAME` | No | `gpt-4o` | Model name used for chat completion |
 | `CHECK_INTERVAL_MINUTES` | No | `60` | Run interval (minimum 5) |
 | `NEWS_LOOKBACK_DAYS` | No | `7` | News freshness window |

@@ -63,7 +63,6 @@ FALLBACK_TICKERS: list[str] = [
 class Config:
     telegram_bot_token: str
     telegram_chat_id: str
-    copilot_api_key: str
     copilot_model: str
     check_interval_minutes: int
     day_gainers_limit: int
@@ -97,15 +96,15 @@ class TradeBotError(RuntimeError):
 def load_config() -> Config:
     telegram_bot_token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
     telegram_chat_id = os.getenv("TELEGRAM_CHAT_ID", "").strip()
-    copilot_api_key = os.getenv("COPILOT_API_KEY", "").strip()
+    github_token = os.getenv("GITHUB_TOKEN", "").strip()
     copilot_model = os.getenv("COPILOT_MODEL", "claude-3.5-sonnet").strip()
 
     if not telegram_bot_token:
         raise TradeBotError("TELEGRAM_BOT_TOKEN is missing")
     if not telegram_chat_id:
         raise TradeBotError("TELEGRAM_CHAT_ID is missing")
-    if not copilot_api_key:
-        raise TradeBotError("COPILOT_API_KEY is missing")
+    if not github_token:
+        raise TradeBotError("GITHUB_TOKEN is missing")
 
     check_interval_minutes = max(5, int(os.getenv("CHECK_INTERVAL_MINUTES", "60")))
     day_gainers_limit = max(1, int(os.getenv("DAY_GAINERS_LIMIT", "10")))
@@ -123,7 +122,6 @@ def load_config() -> Config:
     return Config(
         telegram_bot_token=telegram_bot_token,
         telegram_chat_id=telegram_chat_id,
-        copilot_api_key=copilot_api_key,
         copilot_model=copilot_model,
         check_interval_minutes=check_interval_minutes,
         day_gainers_limit=day_gainers_limit,
