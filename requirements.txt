@@ -1,0 +1,5 @@
+python-dotenv>=1.0.1
+python-telegram-bot>=21.6
+yfinance>=0.2.54
+pandas>=2.2.2
+github-copilot-sdk>=0.1.0
