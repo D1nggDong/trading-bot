@@ -45,7 +45,7 @@ Skipping [TICKER] - no actionable signal
 
 - Python 3.10+
 - Telegram bot token and chat ID
-- GitHub token with model access for inference API
+- Groq API key for model inference
 
 ## Setup
 
@@ -76,8 +76,8 @@ Skipping [TICKER] - no actionable signal
 | `TELEGRAM_BOT_TOKEN` | Yes | - | Telegram bot token |
 | `TELEGRAM_CHAT_ID` | Yes | - | Destination chat/channel ID |
 | `COPILOT_MODEL` | No | `claude-3.5-sonnet` | Preserved config model field |
-| `GITHUB_TOKEN` | Yes | - | Only required AI token; used by model inference client |
-| `MODEL_NAME` | No | `gpt-4o` | Model name used for chat completion |
+| `GROQ_API_KEY` | Yes | - | API key used by the Groq OpenAI-compatible client |
+| `MODEL_NAME` | No | `llama-3.3-70b-versatile` | Model name used for chat completion |
 | `CHECK_INTERVAL_MINUTES` | No | `60` | Run interval (minimum 5) |
 | `NEWS_LOOKBACK_DAYS` | No | `7` | News freshness window |
 | `MAX_NEWS_ITEMS` | No | `5` | Max headlines per ticker |
@@ -108,7 +108,8 @@ chmod +x setup_service.sh
 ./setup_service.sh
 ```
 
-It creates and starts `ai-trading-alert-bot.service`, using `.env` from the project directory.
+It creates and starts `ai-trading-alert-bot.service`, using `.env` from `/home/dingg/Tradingbot`.
+The helper currently expects the bot at `/home/dingg/Tradingbot` and runs it with `/home/dingg/Tradingbot/venv/bin/python3`.
 
 ## State and deduplication
 
