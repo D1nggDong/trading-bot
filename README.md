@@ -239,7 +239,12 @@ Then edit `.env` with your credentials and settings.
 | `PAPER_MAX_TRADES_PER_DAY` | `3` | Max paper trades per day |
 | `PAPER_MAX_TRADES_PER_TICKER_PER_DAY` | `1` | Max paper trades per ticker per day |
 | `PAPER_ALLOW_SHORTS` | `false` | Allows short selling if explicitly enabled |
-| `PAPER_ALLOW_OPTIONS` | `false` | Allows options if explicitly enabled |
+| `PAPER_ALLOW_OPTIONS` | `false` | Allows paper buy-to-open call/put option orders from AI options plays; does not enable naked selling |
+| `PAPER_OPTION_MAX_CONTRACTS` | `10` | Maximum contracts per paper options order |
+| `PAPER_OPTION_MAX_PREMIUM_PCT` | `20` | Maximum option premium budget as a percent of paper account equity |
+| `PAPER_OPTION_MIN_VOLUME` | `0` | Minimum option contract volume filter |
+| `PAPER_OPTION_MIN_OPEN_INTEREST` | `0` | Minimum option contract open-interest filter |
+| `PAPER_OPTION_MAX_SPREAD_PCT` | `100` | Maximum bid/ask spread percentage filter |
 | `PAPER_SIGNAL_FILE` | `signals.jsonl` | Signal record file |
 | `PAPER_TRADE_LOG` | `paper_trades.jsonl` | Paper trade log file |
 | `ALPACA_API_KEY` | - | Alpaca paper API key |

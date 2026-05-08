@@ -453,6 +453,7 @@ def _fetch_snapshot_sync(ticker: str, news_lookback_days: int, max_news_items: i
                     rows = rows.sort_values(by=["distance"])
                 row = rows.iloc[0]
                 return {
+                    "contractSymbol": str(row.get("contractSymbol") or "").strip(),
                     "strike": _safe_float(row.get("strike")),
                     "lastPrice": _safe_float(row.get("lastPrice")),
                     "bid": _safe_float(row.get("bid")),
@@ -785,6 +786,8 @@ def render_trade_notification(analysis: dict[str, Any], trade_result: dict[str, 
     symbol = str(trade_result.get("symbol") or analysis.get("ticker") or "UNKNOWN").upper()
     decision = str(trade_result.get("decision", "unknown"))
     order = trade_result.get("order") if isinstance(trade_result.get("order"), dict) else {}
+    meta = trade_result.get("meta") if isinstance(trade_result.get("meta"), dict) else {}
+    mode = meta.get("mode", "equity")
     rationale = analysis.get("rationale", [])
     if isinstance(rationale, list):
         reason = "; ".join(str(item) for item in rationale[:3])
@@ -792,20 +795,34 @@ def render_trade_notification(analysis: dict[str, Any], trade_result: dict[str, 
         reason = str(rationale or analysis.get("summary", "No rationale provided."))
 
     if decision == "submitted":
-        lines = [
-            f"✅ PAPER BUY EXECUTED: {symbol}",
-            f"Qty: {order.get('qty', 'unknown')}",
-            f"Order: {order.get('type', 'market')} {order.get('side', 'buy')} with bracket",
-            f"Take profit: {order.get('take_profit', {}).get('limit_price', analysis.get('target_price', 'n/a'))}",
-            f"Stop loss: {order.get('stop_loss', {}).get('stop_price', analysis.get('stop_loss', 'n/a'))}",
-            f"Confidence: {analysis.get('confidence', 'n/a')}",
-            f"Reason: {reason}",
-            "Paper trade only — not financial advice.",
-        ]
+        if mode == "option":
+            lines = [
+                f"✅ PAPER OPTIONS BUY EXECUTED: {symbol}",
+                f"Contract: {trade_result.get('execution_symbol', order.get('symbol', 'unknown'))}",
+                f"Type: buy-to-open {meta.get('option_side', 'option')}",
+                f"Qty: {order.get('qty', 'unknown')} contract(s)",
+                f"Limit premium: {order.get('limit_price', meta.get('premium', 'unknown'))}",
+                f"Max premium budget: {meta.get('max_premium', 'n/a')}",
+                f"Confidence: {analysis.get('confidence', 'n/a')}",
+                f"Reason: {reason}",
+                "Paper options trade only — not financial advice.",
+            ]
+        else:
+            lines = [
+                f"✅ PAPER BUY EXECUTED: {symbol}",
+                f"Qty: {order.get('qty', 'unknown')}",
+                f"Order: {order.get('type', 'market')} {order.get('side', 'buy')} with bracket",
+                f"Take profit: {order.get('take_profit', {}).get('limit_price', analysis.get('target_price', 'n/a'))}",
+                f"Stop loss: {order.get('stop_loss', {}).get('stop_price', analysis.get('stop_loss', 'n/a'))}",
+                f"Confidence: {analysis.get('confidence', 'n/a')}",
+                f"Reason: {reason}",
+                "Paper trade only — not financial advice.",
+            ]
     elif decision == "dry_run":
         lines = [
             f"🧪 PAPER TRADE DRY-RUN: {symbol}",
-            f"Would buy qty: {order.get('qty', 'unknown')}",
+            f"Mode: {mode}",
+            f"Would buy: {trade_result.get('execution_symbol', order.get('symbol', symbol))} qty {order.get('qty', 'unknown')}",
             f"Reason: {reason}",
         ]
     elif decision == "skipped":
@@ -903,6 +920,7 @@ async def process_ticker(config: Config, bot: Bot, state: dict[str, Any], ticker
         prompt = build_prompt(snapshot)
         raw_analysis = await generate_analysis(config, prompt)
         analysis = normalize_analysis(raw_analysis)
+        analysis["option_context"] = snapshot.option_context
 
         telegram_message = analysis.get("telegram_message") or render_alert(analysis)
         telegram_message = str(telegram_message).strip()
