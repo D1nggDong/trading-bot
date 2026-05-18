@@ -762,7 +762,9 @@ def record_signal(config: Config, analysis: dict[str, Any], telegram_message: st
 
 
 def maybe_paper_trade(analysis: dict[str, Any], telegram_message: str) -> dict[str, Any] | None:
-    if os.getenv("PAPER_TRADING_ENABLED", "false").strip().lower() not in {"1", "true", "yes", "on"}:
+    trading_mode = os.getenv("TRADING_MODE", "paper").strip().lower()
+    enabled_var = "LIVE_TRADING_ENABLED" if trading_mode == "live" else "PAPER_TRADING_ENABLED"
+    if os.getenv(enabled_var, "false").strip().lower() not in {"1", "true", "yes", "on"}:
         return None
     try:
         import paper_trader
@@ -786,7 +788,9 @@ def render_trade_notification(analysis: dict[str, Any], trade_result: dict[str, 
     symbol = str(trade_result.get("symbol") or analysis.get("ticker") or "UNKNOWN").upper()
     decision = str(trade_result.get("decision", "unknown"))
     order = trade_result.get("order") if isinstance(trade_result.get("order"), dict) else {}
+    alpaca_order = trade_result.get("alpaca_order") if isinstance(trade_result.get("alpaca_order"), dict) else {}
     meta = trade_result.get("meta") if isinstance(trade_result.get("meta"), dict) else {}
+    trading_mode = str(trade_result.get("mode") or os.getenv("TRADING_MODE", "paper")).upper()
     mode = meta.get("mode", "equity")
     rationale = analysis.get("rationale", [])
     if isinstance(rationale, list):
@@ -795,44 +799,48 @@ def render_trade_notification(analysis: dict[str, Any], trade_result: dict[str, 
         reason = str(rationale or analysis.get("summary", "No rationale provided."))
 
     if decision == "submitted":
+        alpaca_status = str(alpaca_order.get("status") or "submitted")
+        filled_qty = str(alpaca_order.get("filled_qty") or "0")
+        is_filled = alpaca_status == "filled" or filled_qty not in {"", "0", "0.0"}
         if mode == "option":
             lines = [
-                f"✅ PAPER OPTIONS BUY EXECUTED: {symbol}",
+                f"{'✅' if is_filled else '🟡'} {trading_mode} OPTIONS BUY {'FILLED' if is_filled else 'ORDER SUBMITTED'}: {symbol}",
                 f"Contract: {trade_result.get('execution_symbol', order.get('symbol', 'unknown'))}",
+                f"Status: {alpaca_status} / filled {filled_qty} of {order.get('qty', 'unknown')}",
                 f"Type: buy-to-open {meta.get('option_side', 'option')}",
                 f"Qty: {order.get('qty', 'unknown')} contract(s)",
                 f"Limit premium: {order.get('limit_price', meta.get('premium', 'unknown'))}",
                 f"Max premium budget: {meta.get('max_premium', 'n/a')}",
                 f"Confidence: {analysis.get('confidence', 'n/a')}",
                 f"Reason: {reason}",
-                "Paper options trade only — not financial advice.",
+                f"{trading_mode.title()} options trade — not financial advice.",
             ]
         else:
             lines = [
-                f"✅ PAPER BUY EXECUTED: {symbol}",
+                f"{'✅' if is_filled else '🟡'} {trading_mode} BUY {'FILLED' if is_filled else 'ORDER SUBMITTED'}: {symbol}",
                 f"Qty: {order.get('qty', 'unknown')}",
                 f"Order: {order.get('type', 'market')} {order.get('side', 'buy')} with bracket",
                 f"Take profit: {order.get('take_profit', {}).get('limit_price', analysis.get('target_price', 'n/a'))}",
                 f"Stop loss: {order.get('stop_loss', {}).get('stop_price', analysis.get('stop_loss', 'n/a'))}",
                 f"Confidence: {analysis.get('confidence', 'n/a')}",
                 f"Reason: {reason}",
-                "Paper trade only — not financial advice.",
+                f"{trading_mode.title()} trade — not financial advice.",
             ]
     elif decision == "dry_run":
         lines = [
-            f"🧪 PAPER TRADE DRY-RUN: {symbol}",
+            f"🧪 {trading_mode} TRADE DRY-RUN: {symbol}",
             f"Mode: {mode}",
             f"Would buy: {trade_result.get('execution_symbol', order.get('symbol', symbol))} qty {order.get('qty', 'unknown')}",
             f"Reason: {reason}",
         ]
     elif decision == "skipped":
         lines = [
-            f"⏭️ PAPER TRADE SKIPPED: {symbol}",
+            f"⏭️ {trading_mode} TRADE SKIPPED: {symbol}",
             f"Reason: {trade_result.get('reason', 'unknown')}",
         ]
     else:
         lines = [
-            f"⚠️ PAPER TRADER STATUS: {symbol}",
+            f"⚠️ {trading_mode} TRADER STATUS: {symbol}",
             f"Decision: {decision}",
             f"Reason: {trade_result.get('reason', 'unknown')}",
         ]
@@ -957,6 +965,11 @@ async def process_ticker(config: Config, bot: Bot, state: dict[str, Any], ticker
 async def run_forever(config: Config) -> None:
     logger = logging.getLogger(__name__)
     bot = Bot(token=config.telegram_bot_token)
+    try:
+        import paper_trader
+        paper_trader.ensure_option_exit_orders()
+    except Exception:
+        logger.exception("Failed to ensure option exit orders on startup")
     state = load_state(config.state_file)
 
     logger.info("Starting trading bot with dynamic ticker discovery")
@@ -970,6 +983,11 @@ async def run_forever(config: Config) -> None:
 
     while True:
         started_at = dt.datetime.now(dt.UTC)
+        try:
+            import paper_trader
+            paper_trader.ensure_option_exit_orders()
+        except Exception:
+            logger.exception("Failed to ensure option exit orders")
         tickers = get_cached_tickers(state, config.discovery_cache_minutes)
         if tickers:
             logger.info("Using cached ticker discovery (%d symbols, max age %d minutes)", len(tickers), config.discovery_cache_minutes)

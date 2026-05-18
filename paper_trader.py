@@ -43,25 +43,36 @@ def _int_env(name: str, default: int) -> int:
         return default
 
 
-BASE_URL = os.getenv("ALPACA_BASE_URL", "https://paper-api.alpaca.markets").rstrip("/")
-KEY_ID = os.getenv("ALPACA_API_KEY_ID", "").strip()
-SECRET = os.getenv("ALPACA_API_SECRET_KEY", "").strip()
-DRY_RUN = _bool_env("PAPER_TRADING_DRY_RUN", True)
-ENABLED = _bool_env("PAPER_TRADING_ENABLED", False)
-MIN_CONFIDENCE = _int_env("PAPER_MIN_CONFIDENCE", 75)
-MAX_OPEN_POSITIONS = _int_env("PAPER_MAX_OPEN_POSITIONS", _int_env("PAPER_MAX_POSITIONS", 3))
-MAX_POSITION_PCT = _float_env("PAPER_MAX_POSITION_PCT", 10.0)
-MAX_TRADES_PER_DAY = _int_env("PAPER_MAX_TRADES_PER_DAY", 3)
-MAX_TRADES_PER_TICKER_PER_DAY = _int_env("PAPER_MAX_TRADES_PER_TICKER_PER_DAY", 1)
-ALLOW_SHORTS = _bool_env("PAPER_ALLOW_SHORTS", False)
-ALLOW_OPTIONS = _bool_env("PAPER_ALLOW_OPTIONS", False)
-OPTION_MAX_CONTRACTS = _int_env("PAPER_OPTION_MAX_CONTRACTS", 10)
-OPTION_MAX_PREMIUM_PCT = _float_env("PAPER_OPTION_MAX_PREMIUM_PCT", 20.0)
-OPTION_MIN_VOLUME = _int_env("PAPER_OPTION_MIN_VOLUME", 0)
-OPTION_MIN_OPEN_INTEREST = _int_env("PAPER_OPTION_MIN_OPEN_INTEREST", 0)
-OPTION_MAX_SPREAD_PCT = _float_env("PAPER_OPTION_MAX_SPREAD_PCT", 100.0)
-TRADE_LOG = ROOT / os.getenv("PAPER_TRADE_LOG", "paper_trades.jsonl")
+TRADING_MODE = os.getenv("TRADING_MODE", "paper").strip().lower()
+if TRADING_MODE not in {"paper", "live"}:
+    TRADING_MODE = "paper"
+IS_LIVE = TRADING_MODE == "live"
+_PREFIX = "LIVE" if IS_LIVE else "PAPER"
 
+BASE_URL = os.getenv(
+    "LIVE_ALPACA_BASE_URL" if IS_LIVE else "ALPACA_BASE_URL",
+    "https://api.alpaca.markets" if IS_LIVE else "https://paper-api.alpaca.markets",
+).rstrip("/")
+KEY_ID = os.getenv("LIVE_ALPACA_API_KEY_ID" if IS_LIVE else "ALPACA_API_KEY_ID", os.getenv("ALPACA_API_KEY", "")).strip()
+SECRET = os.getenv("LIVE_ALPACA_API_SECRET_KEY" if IS_LIVE else "ALPACA_API_SECRET_KEY", os.getenv("ALPACA_SECRET_KEY", "")).strip()
+DRY_RUN = _bool_env(f"{_PREFIX}_TRADING_DRY_RUN", True)
+ENABLED = _bool_env(f"{_PREFIX}_TRADING_ENABLED", False)
+MIN_CONFIDENCE = _int_env(f"{_PREFIX}_MIN_CONFIDENCE", _int_env("PAPER_MIN_CONFIDENCE", 75))
+MAX_OPEN_POSITIONS = _int_env(f"{_PREFIX}_MAX_OPEN_POSITIONS", _int_env(f"{_PREFIX}_MAX_POSITIONS", 3))
+MAX_POSITION_PCT = _float_env(f"{_PREFIX}_MAX_POSITION_PCT", 10.0 if not IS_LIVE else 100.0)
+MAX_POSITION_DOLLARS = _float_env(f"{_PREFIX}_MAX_POSITION_DOLLARS", 0.0)
+CASH_RESERVE_DOLLARS = _float_env(f"{_PREFIX}_CASH_RESERVE_DOLLARS", 0.0)
+MAX_TRADES_PER_DAY = _int_env(f"{_PREFIX}_MAX_TRADES_PER_DAY", 3 if not IS_LIVE else 5)
+MAX_TRADES_PER_TICKER_PER_DAY = _int_env(f"{_PREFIX}_MAX_TRADES_PER_TICKER_PER_DAY", 1)
+ALLOW_SHORTS = _bool_env(f"{_PREFIX}_ALLOW_SHORTS", False)
+ALLOW_OPTIONS = _bool_env(f"{_PREFIX}_ALLOW_OPTIONS", False)
+OPTION_MAX_CONTRACTS = _int_env(f"{_PREFIX}_OPTION_MAX_CONTRACTS", 10 if not IS_LIVE else 999)
+OPTION_MAX_PREMIUM_PCT = _float_env(f"{_PREFIX}_OPTION_MAX_PREMIUM_PCT", 20.0 if not IS_LIVE else 100.0)
+OPTION_MAX_PREMIUM_DOLLARS = _float_env(f"{_PREFIX}_OPTION_MAX_PREMIUM_DOLLARS", 0.0)
+OPTION_MIN_VOLUME = _int_env(f"{_PREFIX}_OPTION_MIN_VOLUME", 0)
+OPTION_MIN_OPEN_INTEREST = _int_env(f"{_PREFIX}_OPTION_MIN_OPEN_INTEREST", 0)
+OPTION_MAX_SPREAD_PCT = _float_env(f"{_PREFIX}_OPTION_MAX_SPREAD_PCT", 100.0)
+TRADE_LOG = ROOT / os.getenv(f"{_PREFIX}_TRADE_LOG", os.getenv("PAPER_TRADE_LOG", "paper_trades.jsonl"))
 
 class PaperTradeError(RuntimeError):
     pass
@@ -73,7 +84,7 @@ def now_utc() -> str:
 
 def _headers() -> dict[str, str]:
     if not KEY_ID or not SECRET:
-        raise PaperTradeError("Alpaca paper API credentials are missing")
+        raise PaperTradeError(f"Alpaca {TRADING_MODE} API credentials are missing")
     return {
         "APCA-API-KEY-ID": KEY_ID,
         "APCA-API-SECRET-KEY": SECRET,
@@ -202,11 +213,13 @@ def validate_signal(signal: dict[str, Any]) -> tuple[bool, str, dict[str, Any]]:
 
     facts = {"symbol": symbol, "action": action, "confidence": confidence, "entry": entry, "stop": stop, "target": target}
     if not ENABLED:
-        return False, "paper trading disabled", facts
+        return False, f"{TRADING_MODE} trading disabled", facts
     if not symbol or not re.match(r"^[A-Z][A-Z0-9.\-]{0,9}$", symbol):
         return False, "invalid symbol", facts
     if action not in {"BUY", "SELL"}:
         return False, "only BUY/SELL signals are executable", facts
+    if IS_LIVE and action == "SELL" and not ALLOW_OPTIONS:
+        return False, "live short/sell execution disabled; cash-only BUY mode", facts
     if action == "SELL" and not ALLOW_SHORTS and not ALLOW_OPTIONS:
         return False, "short/sell execution disabled; BUY-only mode", facts
     if confidence < MIN_CONFIDENCE:
@@ -216,6 +229,58 @@ def validate_signal(signal: dict[str, Any]) -> tuple[bool, str, dict[str, Any]]:
     if action == "BUY" and not (stop < entry < target):
         return False, "BUY requires stop < entry < target", facts
     return True, "validated", facts
+
+
+def ensure_option_exit_orders() -> list[dict[str, Any]]:
+    """Create persistent exits for open long option positions.
+
+    Options are buy-to-open only. For live cash accounts, default to a GTC stop
+    sell order so the contract has downside protection without opening debt or a
+    naked position. Only existing long option positions are closed here.
+    """
+    if not ENABLED or DRY_RUN:
+        return []
+    tp_mult = _float_env(f"{_PREFIX}_OPTION_TAKE_PROFIT_MULT", 2.0)
+    stop_mult = _float_env(f"{_PREFIX}_OPTION_STOP_MULT", 0.5)
+    exit_mode = os.getenv(f"{_PREFIX}_OPTION_EXIT_MODE", "stop" if IS_LIVE else "take_profit").strip().lower()
+    current_positions = positions()
+    current_orders = alpaca_request("GET", "/v2/orders?status=open&limit=100&nested=true")
+    open_closing = {
+        str(o.get("symbol", "")).upper()
+        for o in current_orders
+        if str(o.get("side", "")).lower() == "sell"
+    }
+    created: list[dict[str, Any]] = []
+    for pos in current_positions:
+        if pos.get("asset_class") != "us_option" or pos.get("side") != "long":
+            continue
+        symbol = str(pos.get("symbol", "")).upper()
+        if not symbol or symbol in open_closing:
+            continue
+        qty = str(pos.get("qty") or "0")
+        avg = _num(pos.get("avg_entry_price")) or _num(pos.get("current_price")) or 0.0
+        if avg <= 0:
+            continue
+        limit_price = max(0.01, round(avg * tp_mult, 2))
+        stop_price = max(0.01, round(avg * stop_mult, 2))
+        payload = {
+            "symbol": symbol,
+            "qty": qty,
+            "side": "sell",
+            "time_in_force": os.getenv(f"{_PREFIX}_OPTION_EXIT_TIME_IN_FORCE", "gtc"),
+        }
+        if exit_mode == "stop":
+            payload.update({"type": "stop", "stop_price": str(stop_price)})
+        else:
+            payload.update({"type": "limit", "limit_price": str(limit_price)})
+        try:
+            result = alpaca_request("POST", "/v2/orders", payload)
+            record = {"decision": "option_exit_submitted", "mode": TRADING_MODE, "exit_mode": exit_mode, "symbol": symbol, "qty": qty, "take_profit": limit_price, "stop_price": stop_price, "order": result}
+        except Exception as exc:
+            record = {"decision": "option_exit_failed", "mode": TRADING_MODE, "exit_mode": exit_mode, "symbol": symbol, "qty": qty, "take_profit": limit_price, "stop_price": stop_price, "reason": str(exc)}
+        log_decision(record)
+        created.append(record)
+    return created
 
 
 def process_signal(signal: dict[str, Any]) -> dict[str, Any]:
@@ -265,11 +330,20 @@ def process_signal(signal: dict[str, Any]) -> dict[str, Any]:
         return record
 
     equity = float(acct.get("equity") or acct.get("cash") or 0)
+    cash = float(acct.get("cash") or acct.get("buying_power") or 0)
 
     if execution_mode == "option":
+        if IS_LIVE and not ALLOW_OPTIONS:
+            record = {"decision": "skipped", "reason": "live options disabled", "symbol": symbol}
+            log_decision(record)
+            return record
         max_premium = equity * (OPTION_MAX_PREMIUM_PCT / 100.0)
+        if OPTION_MAX_PREMIUM_DOLLARS > 0:
+            max_premium = min(max_premium, OPTION_MAX_PREMIUM_DOLLARS)
+        if IS_LIVE:
+            max_premium = min(max_premium, max(0.0, cash - CASH_RESERVE_DOLLARS))
         premium = float(option_contract["premium"])
-        qty = min(OPTION_MAX_CONTRACTS, max(1, math.floor(max_premium / (premium * 100.0))))
+        qty = min(OPTION_MAX_CONTRACTS, math.floor(max_premium / (premium * 100.0)))
         if qty <= 0:
             record = {"decision": "skipped", "reason": "option premium budget too small", "symbol": symbol, "max_premium": max_premium, "premium": premium}
             log_decision(record)
@@ -280,11 +354,15 @@ def process_signal(signal: dict[str, Any]) -> dict[str, Any]:
             "side": "buy",
             "type": "limit",
             "limit_price": str(round(premium, 2)),
-            "time_in_force": "day",
+            "time_in_force": os.getenv(f"{_PREFIX}_OPTION_TIME_IN_FORCE", "gtc"),
         }
         order_meta = {"mode": "option", "underlying": symbol, "option_side": option_contract.get("option_side"), "premium": premium, "max_premium": max_premium, "option_reason": option_reason}
     else:
         max_notional = equity * (MAX_POSITION_PCT / 100.0)
+        if MAX_POSITION_DOLLARS > 0:
+            max_notional = min(max_notional, MAX_POSITION_DOLLARS)
+        if IS_LIVE:
+            max_notional = min(max_notional, max(0.0, cash - CASH_RESERVE_DOLLARS))
         entry = float(facts["entry"])
         qty = max(1, math.floor(max_notional / entry))
         if qty * entry > max_notional * 1.05:
@@ -298,7 +376,7 @@ def process_signal(signal: dict[str, Any]) -> dict[str, Any]:
             "qty": str(qty),
             "side": "buy" if facts["action"] == "BUY" else "sell",
             "type": "market",
-            "time_in_force": "day",
+            "time_in_force": os.getenv(f"{_PREFIX}_EQUITY_TIME_IN_FORCE", "gtc"),
             "order_class": "bracket",
             "take_profit": {"limit_price": str(round(float(facts["target"]), 2))},
             "stop_loss": {"stop_price": str(round(float(facts["stop"]), 2))},
@@ -311,7 +389,7 @@ def process_signal(signal: dict[str, Any]) -> dict[str, Any]:
         return record
 
     result = alpaca_request("POST", "/v2/orders", payload)
-    record = {"decision": "submitted", "symbol": symbol, "execution_symbol": execution_symbol, "order": payload, "meta": order_meta, "alpaca_order": result}
+    record = {"decision": "submitted", "mode": TRADING_MODE, "symbol": symbol, "execution_symbol": execution_symbol, "order": payload, "meta": order_meta, "alpaca_order": result}
     log_decision(record)
     return record
 
@@ -324,7 +402,7 @@ def main() -> None:
     args = parser.parse_args()
     if args.account:
         acct = account()
-        print(json.dumps({"status": acct.get("status"), "paper": BASE_URL, "trading_blocked": acct.get("trading_blocked"), "equity": acct.get("equity")}, indent=2))
+        print(json.dumps({"status": acct.get("status"), "mode": TRADING_MODE, "base_url": BASE_URL, "trading_blocked": acct.get("trading_blocked"), "equity": acct.get("equity"), "cash": acct.get("cash"), "buying_power": acct.get("buying_power")}, indent=2))
     elif args.signal_json:
         print(json.dumps(process_signal(json.loads(args.signal_json)), indent=2))
     else:
